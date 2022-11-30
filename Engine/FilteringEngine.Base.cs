@@ -5,42 +5,46 @@ namespace Albion.Engine
 {
     public partial class FilteringEngine : IDisposable
     {
-        private string providerName = "Albion Wall";
-        private Guid providerKey = new Guid("d450cd12-023e-4c44-8c51-1a1e19cfb396");
-        private IntPtr engineHandle = IntPtr.Zero;
+        private static readonly NativePointersManager GlobalPointersManager = new NativePointersManager();
+
+        private const string ProviderName = "ZeroNetworks"; //TODO: change to RPCFW + guid the same as Sagi's so enable/disable is smooth?
+        private static readonly Guid ProviderKey = new Guid("5c02b4c2-7002-11ed-a1eb-0242ac120002");
+        private static readonly IntPtr ProviderKeyPtr = GlobalPointersManager.Add(ProviderKey); //TODO: free
+        private readonly IntPtr _engineHandle;
 
         public FilteringEngine()
         {
-            var session = new FWPM_SESSION0();
+            FWPM_SESSION0 session = new FWPM_SESSION0();
             session.sessionKey = Guid.NewGuid();
             session.flags = FWPM_SESSION_FLAG.NONE;
+            session.txnWaitTimeoutInMSec = UInt32.MaxValue;
 
-            var code = Methods.FwpmEngineOpen0(null, (uint)RPC_C_AUTHN.WINNT, IntPtr.Zero, ref session, out engineHandle);
-            if (code != 0)
-                throw new NativeException(nameof(Methods.FwpmEngineOpen0), code);
+            FwpStatus code = (FwpStatus) WfpMethods.FwpmEngineOpen0(null, (uint)RPC_C_AUTHN.DEFAULT, IntPtr.Zero, ref session, out _engineHandle);
+            if (code != FwpStatus.SUCCESS)
+                throw new NativeException("FwpmEngineOpen0", code);
         }
 
         public void Dispose()
         {
-            if (engineHandle != IntPtr.Zero)
+            if (_engineHandle != IntPtr.Zero)
             {
-                var code = Methods.FwpmEngineClose0(engineHandle);
-                if (code != 0)
-                    throw new NativeException(nameof(Methods.FwpmEngineClose0), code);
+                FwpStatus code = (FwpStatus) WfpMethods.FwpmEngineClose0(_engineHandle);
+                if (code != FwpStatus.SUCCESS)
+                    throw new NativeException("FwpmEngineClose0", code);
             }
         }
 
         public void Initialize()
         {
-            AddProvider();
-            AddSubLayers();
+            // AddProviderIfMissing(); 
+            // AddSubLayers();
         }
 
         public void Clear()
         {
             ClearFilters();
-            ClearSubLayers();
-            DeleteProvider();
+            // ClearSubLayers();
+            // DeleteProvider();
         }
     }
 }

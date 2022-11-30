@@ -1,6 +1,6 @@
 ﻿namespace Albion.Native
 {
-    public enum FWP_E : uint
+    public enum FwpStatus : uint
     {
         SUCCESS = 0x00000000,
         CALLOUT_NOT_FOUND = 0x80320001,

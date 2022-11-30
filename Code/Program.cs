@@ -1,37 +1,123 @@
-﻿using Albion.Engine;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Albion.Engine;
+using Albion.Google;
+using Albion.Native;
 
 namespace Albion.Code
 {
-    class Program
+    public class Program
     {
-        static void Main(string[] args)
+        FilteringEngine engine = new FilteringEngine();
+
+        public static void Main()
         {
-            using var engine = new FilteringEngine();
+            Program program = new Program();
+            try
+            {
+                program.Run();
+                Console.WriteLine("Done.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+            finally
+            {
+                program.Dispose();
+            }
+        }
 
-            //init and clear existing filters
+        private void Run()
+        {
             engine.Initialize();
-            engine.ClearFilters();
 
-            //prevent port scanning
-            engine.SetSilentBlockInV4();
-            engine.SetSilentBlockInV6();
+            // Test();
+            
+            // PrintAllFilters();
+            // PrintLayers();
+            // PrintSubLayers();
+            
+            using (FiltersContext context = new FiltersContext())
+            {
+                AddTestFilters(context);
+            }
+            
+            PrintFilters(engine.GetFiltersForProvider());
 
-            //block all incoming connections
-            engine.AddFilterInV4(false);
-            engine.AddFilterInV6(false);
+            // Console.WriteLine("Added RPC filters. Press enter to delete them...");
+            //
+            Console.ReadLine();
+            //
+            engine.Clear();
+        }
 
-            //allow all outgoing connections
-            engine.AddFilterOutV4(true);
-            engine.AddFilterOutV6(true);
+        private void Test()
+        {
+            try
+            {
+                var filter = engine.GetFilterById(72559);
 
-            //allow incoming ping requests
-            engine.AddFilterInV4(true, new[] { Native.IPPROTO.ICMP });
+                Console.WriteLine($"sublayer: {filter.subLayerKey}, name: {filter.displayData.name}, description: {filter.displayData.description}");
+                
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+        }
 
-            //allow incoming requests for DNS, HTTP, HTTPS
-            engine.AddFilterInV4(true, new[] { Native.IPPROTO.TCP }, new[] { "53", "80", "443" });
+        private void PrintFilters(List<FWPM_FILTER0> filters)
+        {
+            Console.WriteLine($"filters ({filters.Count})");
+            
+            foreach (var filter in filters)
+            {
+                Console.WriteLine($"{filter.filterId} {filter.displayData.name}");
+            }
+            
+            Console.WriteLine();
+        }
 
-            //allow SMB and RDP incoming connections for specified network
-            engine.AddFilterInV4(true, new[] { Native.IPPROTO.TCP }, new[] { "445", "3389" }, new[] { "192.168.1.0/24" });
+        private void PrintLayers()
+        {
+            var layers = engine.GetLayers().ToList();
+            Console.WriteLine($"layers ({layers.Count})");
+            
+            foreach (var layer in layers)
+            {
+                Console.WriteLine($"{layer.layerId} {layer.displayData.name}");
+            }
+            
+            Console.WriteLine();
+        }
+
+        private void PrintSubLayers()
+        {
+            var sublayers = engine.GetSubLayers().ToList();
+            Console.WriteLine($"sublayers ({sublayers.Count})");
+        }
+
+        private void AddTestFilters(FiltersContext context)
+        {
+            Guid[] rpcInterfaces =
+            {
+                new Guid("86d35949-83c9-4044-b424-db363231fd0c"), // task scheduler
+                new Guid("e3514235-4b06-11d1-ab04-00c04fc2dcd2"), //drsuapi
+                new Guid("367abb81-9844-35f1-ad32-98f038001003"), //svcctl
+                new Guid("12345778-1234-abcd-ef00-0123456789ac"), //samr
+            };
+
+            foreach (Guid rpcInterface in rpcInterfaces)
+            {
+                engine.AddRpcFilter(context, FWP_ACTION_TYPE.BLOCK, rpcInterface);
+            }
+        }
+
+        private void Dispose()
+        {
+            engine.Dispose();
         }
     }
 }

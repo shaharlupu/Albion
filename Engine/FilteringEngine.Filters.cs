@@ -1,147 +1,146 @@
-﻿using Albion.Code;
-using Albion.Native;
+﻿using Albion.Native;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Albion.Engine
 {
     public partial class FilteringEngine
     {
-        private IEnumerable<FWPM_FILTER0> GetFilters()
+        public FWPM_FILTER0 GetFilterById(uint layerId)
         {
-            var enumHandle = IntPtr.Zero;
-            var entries = IntPtr.Zero;
+            var filterPtr = IntPtr.Zero;
+            var status = (FwpStatus) WfpMethods.FwpmFilterGetById0(_engineHandle, layerId, out filterPtr);
+            if (status != FwpStatus.SUCCESS)
+            {
+                throw new NativeException(nameof(WfpMethods.FwpmFilterGetById0), status);
+            }
+        
+            //TODO: destroy ptr
+        
+            return Marshal.PtrToStructure<FWPM_FILTER0>(filterPtr);
+        }
+
+        public List<FWPM_FILTER0> GetAllFilters()
+        {
+            return GetFilters(IntPtr.Zero);
+        }
+
+        public List<FWPM_FILTER0> GetFiltersForProvider()
+        {
+            FWPM_FILTER_ENUM_TEMPLATE0 enumTemplate = new FWPM_FILTER_ENUM_TEMPLATE0();
+            enumTemplate.providerKey = ProviderKeyPtr;
+            enumTemplate.layerKey = Layers.FWPM_LAYER_RPC_UM;
+            enumTemplate.enumType = FWP_FILTER_ENUM_TYPE.OVERLAPPING;
+            enumTemplate.flags = FWP_FILTER_ENUM_FLAG.SORTED;
+            enumTemplate.actionMask = 0xFFFFFFFF;
+
+            IntPtr enumTemplatePtr = GlobalPointersManager.Add(enumTemplate); //TODO: wrong allocation scope
+
+            return GetFilters(enumTemplatePtr);
+        }
+
+        private List<FWPM_FILTER0> GetFilters(IntPtr enumTemplate)
+        {
+            List<FWPM_FILTER0> filters = new List<FWPM_FILTER0>();
+            
+            IntPtr enumHandle = IntPtr.Zero;
+            IntPtr entries = IntPtr.Zero;
 
             try
             {
-                var code = Methods.FwpmFilterCreateEnumHandle0(engineHandle, IntPtr.Zero, out enumHandle);
-                if (code != 0)
-                    throw new NativeException(nameof(Methods.FwpmFilterCreateEnumHandle0), code);
+                FwpStatus code = (FwpStatus) WfpMethods.FwpmFilterCreateEnumHandle0(_engineHandle, enumTemplate, out enumHandle);
+                if (code != FwpStatus.SUCCESS)
+                    throw new NativeException("FwpmFilterCreateEnumHandle0", code);
 
-                code = Methods.FwpmFilterEnum0(engineHandle, enumHandle, uint.MaxValue, out entries, out uint numEntriesReturned);
-                if (code != 0)
-                    throw new NativeException(nameof(Methods.FwpmFilterEnum0), code);
+                uint numEntriesReturned;
+                code = (FwpStatus) WfpMethods.FwpmFilterEnum0(_engineHandle, enumHandle, uint.MaxValue, out entries, out numEntriesReturned);
+                if (code != FwpStatus.SUCCESS)
+                    throw new NativeException("FwpmFilterEnum0", code);
 
-                var filterSize = Marshal.SizeOf<FWPM_FILTER0>();
                 for (uint i = 0; i < numEntriesReturned; i++)
                 {
-                    var ptr = new IntPtr(entries.ToInt64() + i * IntPtr.Size);
-                    var ptr2 = Marshal.PtrToStructure<IntPtr>(ptr);
-                    var filter = Marshal.PtrToStructure<FWPM_FILTER0>(ptr2);
+                    IntPtr ptr = new IntPtr(entries.ToInt64() + i * IntPtr.Size);
+                    IntPtr ptr2 = MarshalUtils.PtrToStructure<IntPtr>(ptr);
+                    FWPM_FILTER0 filter = MarshalUtils.PtrToStructure<FWPM_FILTER0>(ptr2);
 
-                    if (filter.providerKey == IntPtr.Zero)
-                        continue;
-
-                    var filterProviderKey = Marshal.PtrToStructure<Guid>(filter.providerKey);
-                    if (filterProviderKey != providerKey)
-                        continue;
-
-                    yield return filter;
+                    filters.Add(filter);
                 }
             }
             finally
             {
-                if (entries != IntPtr.Zero)
-                    Methods.FwpmFreeMemory0(ref entries);
+                // if (entries != IntPtr.Zero)
+                //     WfpMethods.FwpmFreeMemory0(ref entries);
 
                 if (enumHandle != IntPtr.Zero)
                 {
-                    var code = Methods.FwpmFilterDestroyEnumHandle0(engineHandle, enumHandle);
-                    if (code != 0)
-                        throw new NativeException(nameof(Methods.FwpmFilterDestroyEnumHandle0), code);
+                    FwpStatus code = (FwpStatus) WfpMethods.FwpmFilterDestroyEnumHandle0(_engineHandle, enumHandle);
+                    if (code != FwpStatus.SUCCESS)
+                        throw new NativeException("FwpmFilterDestroyEnumHandle0", code);
                 }
             }
+
+            return filters;
         }
 
         public void DeleteFilter(Guid key)
         {
-            var code = Methods.FwpmFilterDeleteByKey0(engineHandle, ref key);
-            if (code != 0 && code != (uint)FWP_E.FILTER_NOT_FOUND)
-                throw new NativeException(nameof(Methods.FwpmFilterDeleteByKey0), code);
+            FwpStatus code = (FwpStatus) WfpMethods.FwpmFilterDeleteByKey0(_engineHandle, ref key);
+            if (code != FwpStatus.SUCCESS && code != FwpStatus.FILTER_NOT_FOUND)
+                throw new NativeException("FwpmFilterDeleteByKey0", code);
         }
 
         public void ClearFilters()
         {
-            foreach (var filter in GetFilters())
+            foreach (FWPM_FILTER0 filter in GetFiltersForProvider())
+            {
+                Console.WriteLine($"Deleting filter {filter.filterKey}");
                 DeleteFilter(filter.filterKey);
+            }
         }
 
-        public void SetSilentBlockInV4() => SetSilentBlockIn(false);
-        public void SetSilentBlockInV6() => SetSilentBlockIn(true);
-
-        public void SetSilentBlockIn(bool v6)
+        public FWPM_FILTER0 AddRpcFilter(FiltersContext context, FWP_ACTION_TYPE actionType, Guid rpcInterface)
         {
-            var layerKey = v6 ? Layers.FWPM_LAYER_INBOUND_TRANSPORT_V6_DISCARD : Layers.FWPM_LAYER_INBOUND_TRANSPORT_V4_DISCARD;
-            var calloutKey = v6 ? Callouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V6_SILENT_DROP : Callouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V4_SILENT_DROP;
-            AddFilter(FWP_ACTION_TYPE.CALLOUT_TERMINATING, calloutKey, layerKey, null);
-        }
+            FWPM_FILTER0 filter = new FWPM_FILTER0();
 
-        public void AddFilterInV4(bool permit, IPPROTO[] protocols = null, string[] localRules = null, string[] remoteRules = null) =>
-            AddFilter(permit, false, false, protocols, localRules, remoteRules);
-
-        public void AddFilterInV6(bool permit, IPPROTO[] protocols = null, string[] localRules = null, string[] remoteRules = null) =>
-            AddFilter(permit, false, true, protocols, localRules, remoteRules);
-
-        public void AddFilterOutV4(bool permit, IPPROTO[] protocols = null, string[] localRules = null, string[] remoteRules = null) =>
-            AddFilter(permit, true, false, protocols, localRules, remoteRules);
-
-        public void AddFilterOutV6(bool permit, IPPROTO[] protocols = null, string[] localRules = null, string[] remoteRules = null) =>
-            AddFilter(permit, true, true, protocols, localRules, remoteRules);
-
-        public void AddFilter(bool permit, bool output, bool v6, IPPROTO[] protocols = null, string[] localRules = null, string[] remoteRules = null)
-        {
-            using var ptrs = new NativePtrs();
-
-            var actionType = permit ? FWP_ACTION_TYPE.PERMIT : FWP_ACTION_TYPE.BLOCK;
-            var layerKey = output ?
-                (v6 ? Layers.FWPM_LAYER_ALE_AUTH_CONNECT_V6 : Layers.FWPM_LAYER_ALE_AUTH_CONNECT_V4) :
-                (v6 ? Layers.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6 : Layers.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4);
-
-            var conditions = Enumerable.Empty<FWPM_FILTER_CONDITION0>()
-                .ConcatSafe(CreateConditionsProtocol(protocols))
-                .ConcatSafe(CreateConditionsPortOrSubnet(v6, false, localRules, ptrs))
-                .ConcatSafe(CreateConditionsPortOrSubnet(v6, true, remoteRules, ptrs))
-                .ToArray();
-
-            AddFilter(actionType, Guid.Empty, layerKey, conditions);
-        }
-
-        public FWPM_FILTER0 AddFilter(FWP_ACTION_TYPE actionType, Guid calloutKey, Guid layerKey, FWPM_FILTER_CONDITION0[] conditions)
-        {
-            using var ptrs = new NativePtrs();
-
-            var filter = new FWPM_FILTER0();
-            filter.providerKey = ptrs.Add(providerKey);
-            filter.filterKey = Guid.NewGuid();
-            filter.layerKey = layerKey;
-            filter.subLayerKey = SubLayers.Get(layerKey);
+            filter.providerKey = context.NativePointers.Add(ProviderKey);
+            // filter.filterKey = Guid.NewGuid();
+            filter.layerKey = Layers.FWPM_LAYER_RPC_UM;
+            filter.subLayerKey = SubLayers.FWPM_SUBLAYER_RPC_AUDIT;//TODO: RPCFW_SUBLAYER?
+            filter.context.rawContext = 1;
             filter.flags = FWPM_FILTER_FLAG.PERSISTENT;
             filter.action.type = actionType;
-            filter.action.calloutKey = calloutKey;
-            filter.weight.type = FWP_DATA_TYPE.UINT8;
-            filter.weight.value.uint8 = (actionType == FWP_ACTION_TYPE.PERMIT) ? (byte)1 : (byte)0;
-            filter.displayData.name = filter.filterKey.ToString();
+            filter.action.calloutKey = Guid.Empty;
+            filter.weight.type = FWP_DATA_TYPE.UINT64;
+            filter.weight.value.uint64 = context.NativePointers.Add((actionType == FWP_ACTION_TYPE.PERMIT) ? 1UL : 0UL);
+            filter.displayData.name = "My RPC display data";
+            filter.displayData.description = "My RPC description";
 
-            if (conditions != null && conditions.Length > 0)
+            FWPM_FILTER_CONDITION0[] conditions =
             {
-                int conditionSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
-                var filterConditions = ptrs.Add(conditionSize * conditions.Length);
+                context.ConditionsFactory.RpcInterface(rpcInterface),
+                context.ConditionsFactory.RpcInterface(rpcInterface),
+            };
+
+            if (conditions.Length > 0)
+            {
+                int conditionSize = MarshalUtils.SizeOf<FWPM_FILTER_CONDITION0>();
+                IntPtr filterConditions = context.NativePointers.Add(conditionSize * conditions.Length);
 
                 for (int i = 0; i < conditions.Length; i++)
                 {
-                    var ptr = new IntPtr(filterConditions.ToInt64() + i * conditionSize);
+                    IntPtr ptr = new IntPtr(filterConditions.ToInt64() + i * conditionSize);
                     Marshal.StructureToPtr(conditions[i], ptr, false);
                 }
 
-                filter.numFilterConditions = (uint)conditions.Length;
+                filter.numFilterConditions = conditions.Length;
                 filter.filterConditions = filterConditions;
             }
 
-            var code = Methods.FwpmFilterAdd0(engineHandle, ref filter, IntPtr.Zero, out ulong id);
-            if (code != 0)
-                throw new NativeException(nameof(Methods.FwpmFilterAdd0), code);
+            ulong id;
+            FwpStatus code = (FwpStatus) WfpMethods.FwpmFilterAdd0(_engineHandle, ref filter, IntPtr.Zero, out id);
+            if (code != FwpStatus.SUCCESS)
+                throw new NativeException("FwpmFilterAdd0", code);
 
             return filter;
         }

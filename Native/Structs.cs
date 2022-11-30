@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Albion.Native
@@ -94,7 +93,7 @@ namespace Albion.Native
         public Guid layerKey;
         public Guid subLayerKey;
         public FWP_VALUE0 weight;
-        public uint numFilterConditions;
+        public int numFilterConditions;
         public IntPtr filterConditions;
         public FWPM_ACTION0 action;
         public Union context;
@@ -112,70 +111,20 @@ namespace Albion.Native
         }
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct FWP_BYTE_BLOB
     {
         public uint size;
         public IntPtr data;
     }
 
-    public struct FWP_CONDITION_VALUE0
-    {
-        public FWP_DATA_TYPE type;
-        public Union value;
-
-        [StructLayout(LayoutKind.Explicit)]
-        public struct Union
-        {
-            [FieldOffset(0)]
-            public byte uint8;
-            [FieldOffset(0)]
-            public ushort uint16;
-            [FieldOffset(0)]
-            public uint uint32;
-            [FieldOffset(0)]
-            public IntPtr uint64;
-            [FieldOffset(0)]
-            public sbyte int8;
-            [FieldOffset(0)]
-            public short int16;
-            [FieldOffset(0)]
-            public int int32;
-            [FieldOffset(0)]
-            public IntPtr int64;
-            [FieldOffset(0)]
-            public float float32;
-            [FieldOffset(0)]
-            public IntPtr double64;
-            [FieldOffset(0)]
-            public IntPtr byteArray16;
-            [FieldOffset(0)]
-            public IntPtr byteBlob;
-            [FieldOffset(0)]
-            public IntPtr sid;
-            [FieldOffset(0)]
-            public IntPtr sd;
-            [FieldOffset(0)]
-            public IntPtr tokenInformation;
-            [FieldOffset(0)]
-            public IntPtr tokenAccessInformation;
-            [FieldOffset(0)]
-            public IntPtr unicodeString;
-            [FieldOffset(0)]
-            public IntPtr byteArray6;
-            [FieldOffset(0)]
-            public IntPtr v4AddrMask;
-            [FieldOffset(0)]
-            public IntPtr v6AddrMask;
-            [FieldOffset(0)]
-            public IntPtr rangeValue;
-        }
-    }
-
+    
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct FWPM_FILTER_CONDITION0
     {
         public Guid fieldKey;
         public FWP_MATCH matchType;
-        public FWP_CONDITION_VALUE0 conditionValue;
+        public FWP_VALUE0 conditionValue;
     }
 
     public struct FWPM_PROVIDER0
@@ -199,6 +148,15 @@ namespace Albion.Native
         public IntPtr filterCondition;
         public uint actionMask;
         public IntPtr calloutKey;
+    }
+
+    public struct FWPM_LAYER0
+    {
+        public Guid layerKey;
+        public FWPM_DISPLAY_DATA0 displayData;
+        public uint flags;
+        public Guid defaultSubLayerKey;
+        public ushort layerId;
     }
 
     public struct FWPM_SUBLAYER0
